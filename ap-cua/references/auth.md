@@ -29,7 +29,7 @@ For non-interactive use, set `AP_CUA_AGENTPLAN_API_KEY`. `AGENTPLAN_API_KEY` and
 
 | Error | Meaning | Action |
 | --- | --- | --- |
-| `AUTH_REQUIRED` | no/invalid API key | run `error.retry_command` (`auth login`), then retry |
+| `AUTH_REQUIRED` | no API key, or the API key is invalid | run `error.retry_command` (`auth login`), enter the correct API key, then retry |
 | `TOKEN_EXPIRED` | gateway rejected the bearer credential | run `auth login` again |
 | `REFRESH_FAILED` | legacy alias for re-login needed | run `auth login` again |
 | `FORBIDDEN` | API key is valid but not allowed for this operation | do not retry with the same key |
