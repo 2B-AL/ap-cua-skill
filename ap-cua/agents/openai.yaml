@@ -1,0 +1,9 @@
+display_name: AgentPlan CUA
+short_description: Delegate AgentPlan computer-use tasks to an authenticated cloud desktop.
+default_prompt: >-
+  Use the AgentPlan CUA skill to run the user's computer-use task on a cloud
+  desktop. Drive everything through scripts/cua.py: check auth, configure the
+  user's AgentPlan API key if needed, delegate the user's original objective,
+  then watch until the outcome is completed, needs_input, failed, or cancelled.
+  Relay any question to the user and submit their answer. Use result.text as the
+  authoritative final result. Never print or log the API key.
