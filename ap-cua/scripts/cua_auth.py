@@ -77,9 +77,7 @@ def _authorized_call_once(state, base_url, method, path, body=None, query=None, 
     try:
         return gateway_call(method, base_url, path, token=ensure_access_token(state, base_url), **kwargs)
     except SkillError as exc:
-        if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED") and "retry_command" not in exc.extra:
-            exc.extra["retry_command"] = login_retry_command()
-        raise
+        raise _auth_error_with_retry(exc)
 
 
 def _authorized_raw_call_once(state, base_url, method, path, body=None, query=None, timeout=None):
@@ -90,9 +88,7 @@ def _authorized_raw_call_once(state, base_url, method, path, body=None, query=No
         _status, headers, raw = raw_request(method, base_url, path, token=ensure_access_token(state, base_url), **kwargs)
         return headers, raw
     except SkillError as exc:
-        if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED") and "retry_command" not in exc.extra:
-            exc.extra["retry_command"] = login_retry_command()
-        raise
+        raise _auth_error_with_retry(exc)
 
 
 def login(state, base_url, api_key=None, prompt=True, **_unused):
@@ -107,7 +103,10 @@ def login(state, base_url, api_key=None, prompt=True, **_unused):
             retry_command=login_retry_command(),
         )
 
-    data = gateway_call("GET", base_url, "/v1/auth/me", token=token)
+    try:
+        data = gateway_call("GET", base_url, "/v1/auth/me", token=token)
+    except SkillError as exc:
+        raise _auth_error_with_retry(exc)
     user = _safe_user(data.get("user") or data.get("caller") or data)
     state.set_api_key(
         api_base_url=base_url,
@@ -154,6 +153,28 @@ def logout(state, base_url):
 
 def _configured_api_key(state):
     return _first_non_empty(*_env_api_keys(), state.access_token)
+
+
+def _auth_error_with_retry(exc):
+    if _is_agentplan_auth_rejection(exc):
+        return SkillError(
+            "AUTH_REQUIRED",
+            "AgentPlan APIKey 不合法，请输入正确的 APIKey。",
+            retry_command=login_retry_command(),
+            auth_type="agentplan_bearer",
+        )
+    if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED", "REFRESH_FAILED") and "retry_command" not in exc.extra:
+        exc.extra["retry_command"] = login_retry_command()
+    return exc
+
+
+def _is_agentplan_auth_rejection(exc):
+    if exc.code not in ("AUTH_REQUIRED", "TOKEN_EXPIRED", "FORBIDDEN"):
+        return False
+    if exc.extra.get("auth_type") == "agentplan_bearer":
+        return True
+    message = (exc.message or "").lower()
+    return "ark acquire returned status 401" in message or "ark acquire returned status 403" in message
 
 
 def _env_api_keys():

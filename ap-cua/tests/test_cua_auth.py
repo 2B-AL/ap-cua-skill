@@ -93,6 +93,21 @@ class CuaAuthLoginTests(unittest.TestCase):
             cua_auth.ensure_access_token(state, "http://gateway")
         self.assertEqual(ctx.exception.code, "AUTH_REQUIRED")
 
+    def test_login_invalid_agentplan_key_returns_actionable_message(self):
+        state = FakeState()
+
+        def fake_gateway_call(*_args, **_kwargs):
+            raise SkillError("AUTH_REQUIRED", "ark acquire returned status 401", auth_type="agentplan_bearer")
+
+        with mock.patch.object(cua_auth, "gateway_call", side_effect=fake_gateway_call), \
+                self.assertRaises(SkillError) as ctx:
+            cua_auth.login(state, "http://gateway", api_key="bad-key", prompt=False)
+
+        self.assertEqual(ctx.exception.code, "AUTH_REQUIRED")
+        self.assertEqual(ctx.exception.message, "AgentPlan APIKey 不合法，请输入正确的 APIKey。")
+        self.assertIn("auth login", ctx.exception.extra.get("retry_command", ""))
+        self.assertEqual(ctx.exception.extra.get("auth_type"), "agentplan_bearer")
+
 
 if __name__ == "__main__":
     unittest.main()
