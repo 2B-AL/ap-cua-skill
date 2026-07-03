@@ -31,7 +31,7 @@ from cua_util import (
     emit_error,
     emit_success,
     ext_for_mime,
-    login_retry_command,
+    login_setup_command,
     now_epoch,
     script_path,
     validate_iso8601,
@@ -644,7 +644,10 @@ def cmd_self_test(args, state, session):
     }
     next_hint = None
     if not checks["logged_in"]:
-        next_hint = {"command": login_retry_command(), "agent_hint": "Not logged in yet. Run auth login before real work."}
+        next_hint = {
+            "setup_command": login_setup_command(),
+            "agent_hint": "Not logged in yet. Do not run setup_command yourself; ask the user to run it in a local terminal before real work.",
+        }
     return {"data": checks, "next": next_hint} if next_hint else {"data": checks}
 
 
@@ -920,7 +923,7 @@ def build_parser():
     p.set_defaults(handler=cmd_auth_status, action="auth status")
 
     p = auth.add_parser("login", help="Configure a Volcengine Ark AgentPlan API key.")
-    p.add_argument("--api-key", help="AgentPlan API key. Prefer the secure prompt or AP_CUA_AGENTPLAN_API_KEY.")
+    p.add_argument("--api-key", help="AgentPlan API key. Prefer the local terminal prompt or AP_CUA_AGENTPLAN_API_KEY.")
     p.add_argument("--no-prompt", action="store_true", help="Do not prompt; require --api-key or env.")
     p.set_defaults(handler=cmd_auth_login, action="auth login")
 

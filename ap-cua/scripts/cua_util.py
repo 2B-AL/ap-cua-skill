@@ -62,15 +62,27 @@ def emit_error(action, error):
 
 def _next_for_error(body):
     code = body.get("code")
+    setup = body.get("setup_command")
+    if code in ("AUTH_REQUIRED", "REFRESH_FAILED", "TOKEN_EXPIRED") and setup:
+        return {
+            "setup_command": setup,
+            "agent_hint": "Do not run setup_command yourself. Ask the user to open a local terminal, "
+            "run setup_command there, enter their AgentPlan API key in that terminal prompt, "
+            "then retry the original command. Never ask the user to paste the API key into chat.",
+        }
     retry = body.get("retry_command")
     if code in ("AUTH_REQUIRED", "REFRESH_FAILED") and retry:
         return {
-            "command": retry,
-            "agent_hint": "Run retry_command so the user can enter their AgentPlan API key securely, "
-            "then re-run the original command. Never print or log the API key.",
+            "setup_command": retry,
+            "agent_hint": "Do not run retry_command yourself. Ask the user to open a local terminal, "
+            "run it there, enter their AgentPlan API key in that terminal prompt, "
+            "then retry the original command. Never ask the user to paste the API key into chat.",
         }
     if code == "TOKEN_EXPIRED" and retry:
-        return {"command": retry, "agent_hint": "Re-run retry_command, then retry the original command."}
+        return {
+            "setup_command": retry,
+            "agent_hint": "Do not run retry_command yourself. Ask the user to run it in a local terminal, then retry the original command.",
+        }
     if code == "SCHEDULING_UNAVAILABLE":
         return {
             "agent_hint": "This CUA backend does not support scheduled tasks. Do NOT retry with different "
@@ -114,7 +126,12 @@ def script_path():
 
 
 def login_retry_command():
-    """The exact command an agent should run to (re)login, using this script's path."""
+    """Compatibility alias for older callers; agents should prefer setup_command."""
+    return f"python3 {script_path()} auth login"
+
+
+def login_setup_command():
+    """The command the user should run in their own local terminal to login."""
     return f"python3 {script_path()} auth login"
 
 

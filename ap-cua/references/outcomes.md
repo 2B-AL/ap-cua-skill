@@ -28,7 +28,9 @@ return the same envelope, plus a `platform` block of cross-system reference ids:
 Keep using the semantic ids (`invocation_id` / task id, `context_id`); the
 `platform` ids are only for logs/dashboards and scheduled-task provenance.
 
-The CLI also adds a top-level `next` block with a ready-to-run `command`.
+The CLI also adds a top-level `next` block. For task progress this usually
+contains a ready-to-run `command`. For auth setup it contains `setup_command`,
+which the user must run in their own local terminal; the agent must not run it.
 
 ## Platform `resultType` → outcome
 

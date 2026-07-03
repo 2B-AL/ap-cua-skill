@@ -24,7 +24,9 @@ python3 scripts/cua.py auth status
 }}
 ```
 
-If not logged in: `error.code = AUTH_REQUIRED` with `retry_command`.
+If not logged in: `error.code = AUTH_REQUIRED` with `setup_command`. The agent
+must ask the user to run that command in their own local terminal; the agent
+must not run the interactive login command itself.
 
 ## auth login
 
@@ -35,7 +37,9 @@ Configure the caller's Volcengine Ark AgentPlan API key and cache it locally
 python3 scripts/cua.py auth login [--api-key <key>] [--no-prompt]
 ```
 
-- Prefer the secure prompt or `AP_CUA_AGENTPLAN_API_KEY`.
+- Prefer the local terminal prompt or `AP_CUA_AGENTPLAN_API_KEY`.
+- In a non-interactive agent-run command, `auth login` returns `AUTH_REQUIRED`
+  with `setup_command` instead of blocking for input.
 - Do not print or log the API key.
 - Success: `data.status = "logged_in"`.
 

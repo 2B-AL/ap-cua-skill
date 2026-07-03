@@ -8,13 +8,20 @@ the same API key to CUA runtime model calls.
 ## Login
 
 1. A business command (or `auth status`) returns `AUTH_REQUIRED` when there is no
-   configured API key. Run its `error.retry_command` (which is `auth login`).
-2. `auth login` asks the user to enter their AgentPlan API key through a secure
-   prompt, then calls `/v1/auth/me` to validate it.
+   configured API key. Do not run an interactive login command from the agent
+   session. Show the user `error.setup_command` or `next.setup_command` and ask
+   them to run it in their own local terminal.
+2. `auth login`, when run by the user in a local terminal, asks the user to enter
+   their AgentPlan API key through a terminal prompt, then calls `/v1/auth/me`
+   to validate it.
 3. On success it returns `status: "logged_in"` and caches the API key locally.
 
 For non-interactive use, set `AP_CUA_AGENTPLAN_API_KEY`. `AGENTPLAN_API_KEY` and
 `ARK_API_KEY` are accepted as compatibility aliases. Never print or log the key.
+
+When stdin is not a TTY, `auth login` does not prompt or block. It returns
+`AUTH_REQUIRED` with `setup_command` so the agent can ask the user to perform the
+login in a real local terminal instead of pasting the API key into chat.
 
 ## Local Cache
 
@@ -29,9 +36,9 @@ For non-interactive use, set `AP_CUA_AGENTPLAN_API_KEY`. `AGENTPLAN_API_KEY` and
 
 | Error | Meaning | Action |
 | --- | --- | --- |
-| `AUTH_REQUIRED` | no API key, or the API key is invalid | run `error.retry_command` (`auth login`), enter the correct API key, then retry |
-| `TOKEN_EXPIRED` | gateway rejected the bearer credential | run `auth login` again |
-| `REFRESH_FAILED` | legacy alias for re-login needed | run `auth login` again |
+| `AUTH_REQUIRED` | no API key, or the API key is invalid | ask the user to run `setup_command` in their own local terminal, then retry |
+| `TOKEN_EXPIRED` | gateway rejected the bearer credential | ask the user to run `setup_command` in their own local terminal again |
+| `REFRESH_FAILED` | legacy alias for re-login needed | ask the user to run `setup_command` in their own local terminal again |
 | `FORBIDDEN` | API key is valid but not allowed for this operation | do not retry with the same key |
 
 ## Logout
