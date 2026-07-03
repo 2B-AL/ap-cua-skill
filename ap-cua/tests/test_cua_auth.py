@@ -92,6 +92,19 @@ class CuaAuthLoginTests(unittest.TestCase):
                 self.assertRaises(SkillError) as ctx:
             cua_auth.ensure_access_token(state, "http://gateway")
         self.assertEqual(ctx.exception.code, "AUTH_REQUIRED")
+        self.assertIn("auth login", ctx.exception.extra.get("setup_command", ""))
+
+    def test_login_non_interactive_returns_setup_command_without_prompting(self):
+        state = FakeState()
+        with mock.patch.dict(os.environ, {name: "" for name in cua_auth.API_KEY_ENV_VARS}, clear=False), \
+                mock.patch("sys.stdin.isatty", return_value=False), \
+                mock.patch.object(cua_auth.getpass, "getpass") as getpass_mock, \
+                self.assertRaises(SkillError) as ctx:
+            cua_auth.login(state, "http://gateway", prompt=True)
+
+        getpass_mock.assert_not_called()
+        self.assertEqual(ctx.exception.code, "AUTH_REQUIRED")
+        self.assertIn("auth login", ctx.exception.extra.get("setup_command", ""))
 
     def test_login_invalid_agentplan_key_returns_actionable_message(self):
         state = FakeState()
@@ -105,7 +118,7 @@ class CuaAuthLoginTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, "AUTH_REQUIRED")
         self.assertEqual(ctx.exception.message, "AgentPlan APIKey 不合法，请输入正确的 APIKey。")
-        self.assertIn("auth login", ctx.exception.extra.get("retry_command", ""))
+        self.assertIn("auth login", ctx.exception.extra.get("setup_command", ""))
         self.assertEqual(ctx.exception.extra.get("auth_type"), "agentplan_bearer")
 
 

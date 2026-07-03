@@ -8,10 +8,11 @@ same key as the model API key for CUA runtime calls.
 
 import getpass
 import os
+import sys
 import time
 
 from cua_http import gateway_call, raw_request
-from cua_util import RETRYABLE_ERROR_CODES, SkillError, login_retry_command
+from cua_util import RETRYABLE_ERROR_CODES, SkillError, login_setup_command
 
 DEFAULT_LOGIN_TIMEOUT_SEC = 0
 API_KEY_ENV_VARS = ("AP_CUA_AGENTPLAN_API_KEY", "AGENTPLAN_API_KEY", "ARK_API_KEY")
@@ -25,15 +26,15 @@ def ensure_access_token(state, base_url):
     raise SkillError(
         "AUTH_REQUIRED",
         "AgentPlan API key required for CUA Skill.",
-        retry_command=login_retry_command(),
+        setup_command=login_setup_command(),
     )
 
 
 def refresh_access_token(state, base_url):
     raise SkillError(
         "AUTH_REQUIRED",
-        "AgentPlan API keys are not refreshed by the skill. Run auth login again.",
-        retry_command=login_retry_command(),
+        "AgentPlan API keys are not refreshed by the skill. Ask the user to run setup_command in a local terminal.",
+        setup_command=login_setup_command(),
     )
 
 
@@ -95,12 +96,18 @@ def login(state, base_url, api_key=None, prompt=True, **_unused):
     """Configure and validate an AgentPlan API key."""
     token = _first_non_empty(api_key, *_env_api_keys())
     if not token and prompt:
+        if not sys.stdin.isatty():
+            raise SkillError(
+                "AUTH_REQUIRED",
+                "AgentPlan API key required. Open a local terminal and run setup_command; do not paste the API key into chat.",
+                setup_command=login_setup_command(),
+            )
         token = getpass.getpass("AgentPlan API key: ").strip()
     if not token:
         raise SkillError(
             "AUTH_REQUIRED",
-            "AgentPlan API key required. Set AP_CUA_AGENTPLAN_API_KEY or run auth login.",
-            retry_command=login_retry_command(),
+            "AgentPlan API key required. Open a local terminal and run setup_command, or set AP_CUA_AGENTPLAN_API_KEY in that terminal.",
+            setup_command=login_setup_command(),
         )
 
     try:
@@ -160,11 +167,11 @@ def _auth_error_with_retry(exc):
         return SkillError(
             "AUTH_REQUIRED",
             "AgentPlan APIKey 不合法，请输入正确的 APIKey。",
-            retry_command=login_retry_command(),
+            setup_command=login_setup_command(),
             auth_type="agentplan_bearer",
         )
-    if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED", "REFRESH_FAILED") and "retry_command" not in exc.extra:
-        exc.extra["retry_command"] = login_retry_command()
+    if exc.code in ("AUTH_REQUIRED", "TOKEN_EXPIRED", "REFRESH_FAILED") and "setup_command" not in exc.extra:
+        exc.extra["setup_command"] = login_setup_command()
     return exc
 
 

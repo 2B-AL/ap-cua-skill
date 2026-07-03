@@ -18,11 +18,12 @@ python3 <skill_dir>/scripts/cua.py <command> [options]
 
 Every call prints ONE JSON object. Parse it. On success `"ok": true` with a
 `data` object and usually a `next` block. On failure `"ok": false` with
-`error.code` and often `error.retry_command`.
+`error.code`; auth failures include `error.setup_command` for the user to run in
+their own local terminal.
 
 Zero-config: the gateway URL is baked into the skill (`config.json`). The only
-one-time step is configuring the AgentPlan API key, which the workflow triggers
-for you. (Advanced override: `--api-base-url <url>` or
+one-time step is configuring the AgentPlan API key, which the user must do in
+their own local terminal. (Advanced override: `--api-base-url <url>` or
 `AP_CUA_SKILL_API_BASE_URL`.)
 
 ## If the user asks to update this skill
@@ -55,10 +56,13 @@ Never print or log the user's AgentPlan API key while updating the skill.
 ## Fixed workflow — follow in order
 
 1. **Check auth**: run `auth status`.
-   - If it returns `AUTH_REQUIRED`, run the command in `error.retry_command`
-     (this is `auth login`). Let the user enter their AgentPlan API key through
-     the secure prompt, or use `AP_CUA_AGENTPLAN_API_KEY` if already set. Never
-     print the API key.
+   - If it returns `AUTH_REQUIRED`, do **not** run an interactive login command
+     yourself. Relay `error.setup_command` or `next.setup_command` to the user
+     and ask them to run it in their own local terminal, enter the AgentPlan API
+     key in that terminal prompt, then tell you when it is done. Never ask the
+     user to paste the API key into chat.
+   - After the user confirms the local terminal login is complete, run
+     `auth status` again, then continue.
 2. **Delegate**: `delegate --objective "<the user's original request>"`.
    - Pass the user's request as-is. Do NOT plan, decompose, or add constraints.
    - One exception: strip *local-delivery* intent ("下载到本地 / 保存到本地 /
@@ -145,8 +149,11 @@ the user's intent clearly calls for it:
 ## Hard rules
 
 - Always go through `scripts/cua.py`. Never hand-build HTTP, MCP, or OAuth calls.
-- On `AUTH_REQUIRED`, `TOKEN_EXPIRED`, or `REFRESH_FAILED`: run
-  `error.retry_command`, then retry the original command. Do not invent API keys.
+- On `AUTH_REQUIRED`, `TOKEN_EXPIRED`, or `REFRESH_FAILED`: do not run an
+  interactive login command yourself. Show the user `setup_command`, ask them to
+  run it in their own local terminal, and retry only after they confirm it is
+  complete. Do not invent API keys and do not ask the user to paste an API key
+  into chat.
 - Treat `data.result.text` (when `outcome == completed`) as the only
   authoritative result. Never produce a final answer from `progress`,
   `input_request`, or a screenshot.

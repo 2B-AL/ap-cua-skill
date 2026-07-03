@@ -5,9 +5,9 @@ Branch on `error.code`.
 
 | code | HTTP | cause | what to do |
 | --- | --- | --- | --- |
-| `AUTH_REQUIRED` | 401 | no/invalid AgentPlan API key | run `error.retry_command` (`auth login`), then retry the original command |
-| `TOKEN_EXPIRED` | 401 | gateway rejected the bearer credential | run `auth login` again |
-| `REFRESH_FAILED` | 401 | legacy alias for re-login needed | run `auth login` again |
+| `AUTH_REQUIRED` | 401 | no/invalid AgentPlan API key | ask the user to run `setup_command` in their own local terminal, then retry the original command |
+| `TOKEN_EXPIRED` | 401 | gateway rejected the bearer credential | ask the user to run `setup_command` in their own local terminal again |
+| `REFRESH_FAILED` | 401 | legacy alias for re-login needed | ask the user to run `setup_command` in their own local terminal again |
 | `FORBIDDEN` | 403 | missing scope | tell the user they lack permission for this action |
 | `DESKTOP_NOT_BOUND` | 403 | no CUA desktop allocated | tell the user CUA is not provisioned; contact an admin |
 | `INVOCATION_NOT_FOUND` | 404 | wrong/unknown invocation id | re-check the id; do not guess. Use `--last` or the id from `delegate` |
@@ -36,8 +36,12 @@ Skill codes, so you only ever branch on the codes above — never on raw platfor
 - **"No CUA gateway configured."** The bundled `config.json` still has the
   REPLACE placeholder. Pass `--api-base-url <url>` or set
   `AP_CUA_SKILL_API_BASE_URL`, or have the publisher fill in `config.json`.
+- **Login is required.** Do not run the interactive login command from the agent
+  session. Show `setup_command` to the user and ask them to run it in their own
+  local terminal, then retry after they confirm it finished.
 - **Login fails.** Make sure the user entered a valid Volcengine Ark AgentPlan
-  API key, or set `AP_CUA_AGENTPLAN_API_KEY` before running the command.
+  API key in their local terminal, or set `AP_CUA_AGENTPLAN_API_KEY` before
+  running the command.
 - **Task seems stuck.** `in_progress` after a wait window just means it is still
   running — `watch` again. Do not `cancel` unless the user asks.
 - **`access_url` won't open / expired.** Run `observe` again for a fresh URL.
