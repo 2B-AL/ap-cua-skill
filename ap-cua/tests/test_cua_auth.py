@@ -9,7 +9,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import cua_auth  # noqa: E402
-from cua_util import SkillError  # noqa: E402
+from cua_util import SkillError, _next_for_error  # noqa: E402
 
 
 class FakeState:
@@ -120,6 +120,28 @@ class CuaAuthLoginTests(unittest.TestCase):
         self.assertEqual(ctx.exception.message, "AgentPlan APIKey 不合法，请输入正确的 APIKey。")
         self.assertIn("auth login", ctx.exception.extra.get("setup_command", ""))
         self.assertEqual(ctx.exception.extra.get("auth_type"), "agentplan_bearer")
+
+
+class CuaErrorHintTests(unittest.TestCase):
+    def test_active_run_conflict_stops_without_followup_command(self):
+        hint = _next_for_error({
+            "code": "ACTIVE_RUN_CONFLICT",
+            "message": "A run is already active for this desktop.",
+        })
+
+        self.assertIsNotNone(hint)
+        self.assertNotIn("command", hint)
+        self.assertIn("wait until the current desktop task finishes", hint["agent_hint"])
+        self.assertIn("do not retry", hint["agent_hint"])
+
+    def test_legacy_upstream_active_message_is_treated_as_conflict(self):
+        hint = _next_for_error({
+            "code": "UpstreamError",
+            "message": "A desktop run is already active for this session.",
+        })
+
+        self.assertIsNotNone(hint)
+        self.assertNotIn("command", hint)
 
 
 if __name__ == "__main__":
