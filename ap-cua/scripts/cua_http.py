@@ -71,7 +71,17 @@ def gateway_call(method, base_url, path, token=None, body=None, query=None, time
     """Call the gateway and return the `data` payload, raising SkillError on error."""
     status, payload = request(method, base_url, path, token=token, body=body, query=query, timeout=timeout)
     if isinstance(payload, dict) and payload.get("ok") is True:
-        return payload.get("data", {})
+        data = payload.get("data", {})
+        if not isinstance(data, dict):
+            return {}
+        data = dict(data)
+        if payload.get("request_id") and not data.get("request_id"):
+            data["request_id"] = payload["request_id"]
+            if "outcome" in data or "diagnostics" in data:
+                diagnostics = dict(data.get("diagnostics") or {})
+                diagnostics.setdefault("request_id", payload["request_id"])
+                data["diagnostics"] = diagnostics
+        return data
     _raise_gateway_error(status, payload)
 
 
@@ -80,6 +90,8 @@ def _raise_gateway_error(status, payload):
     error = payload.get("error") if isinstance(payload, dict) else None
     if isinstance(error, dict) and error.get("code"):
         extra = {k: v for k, v in error.items() if k not in ("code", "message")}
+        if payload.get("request_id") and not extra.get("request_id"):
+            extra["request_id"] = payload["request_id"]
         raise SkillError(error["code"], error.get("message", "request failed"), **extra)
     # 502/503/504 usually come from the API gateway (not our envelope) when an
     # upstream sync wait exceeds the gateway timeout. Treat them as retryable so

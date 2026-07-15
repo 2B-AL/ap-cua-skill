@@ -25,8 +25,9 @@ class SkillError(Exception):
 
     `code` follows the gateway error codes (AUTH_REQUIRED, TOKEN_EXPIRED,
     REFRESH_FAILED, FORBIDDEN, DESKTOP_NOT_BOUND, INVOCATION_NOT_FOUND,
-    INVOCATION_NOT_WAITING_INPUT, CUA_BACKEND_UNAVAILABLE, RATE_LIMITED,
-    VALIDATION_ERROR, NETWORK, INTERNAL).
+    INVOCATION_NOT_WAITING_INPUT, ACTIVE_RUN_CONFLICT, MODEL_TIMEOUT,
+    DESKTOP_UNHEALTHY, SESSION_CLEANUP, UPSTREAM_FAILURE,
+    CUA_BACKEND_UNAVAILABLE, RATE_LIMITED, VALIDATION_ERROR, NETWORK, INTERNAL).
     """
 
     def __init__(self, code, message, **extra):
@@ -95,6 +96,16 @@ def _next_for_error(body):
             "agent_hint": "This CUA backend does not support scheduled tasks. Do NOT retry with different "
             "arguments and do NOT fall back to any external scheduler or host automation. Tell the user "
             "scheduling is unavailable; if they want it now, run the goal once with `task run`/`delegate`.",
+        }
+    if code == "MODEL_TIMEOUT":
+        return {
+            "agent_hint": "The model provider timed out. Report error.reason and error.request_id. "
+            "Retry only when the operation is safe and the user wants to try again.",
+        }
+    if code in ("DESKTOP_UNHEALTHY", "SESSION_CLEANUP", "UPSTREAM_FAILURE"):
+        return {
+            "agent_hint": "Do not retry blindly. Report error.reason, error.request_id, and any safe context "
+            "so the owning service can diagnose the failure.",
         }
     if code in RETRYABLE_ERROR_CODES:
         return {

@@ -77,7 +77,8 @@ python3 scripts/cua.py delegate --objective "<user request>" [--wait-ms 30000]
 ```
 
 - `--objective` (required): the user's request, unmodified.
-- `--wait-ms`: max ms to wait before returning. Does NOT cancel the task.
+- `--wait-ms`: total client-side wait budget. Calls above 60 seconds are split
+  into repeated gateway waits. It does NOT cancel the task.
 
 `data` is the invocation envelope (see `outcomes.md`). `next.command` tells you
 what to run next.
@@ -89,6 +90,10 @@ Wait for or check an invocation's next state.
 ```bash
 python3 scripts/cua.py watch (--invocation-id <id> | --last) [--wait-ms 60000]
 ```
+
+`--wait-ms` is the total client-side budget, not one server long poll. For
+example, `--wait-ms 900000` can remain connected for up to 15 minutes while the
+CLI uses individual waits of at most 60 seconds.
 
 ## answer
 

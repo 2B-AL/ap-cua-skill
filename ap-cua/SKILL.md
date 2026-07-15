@@ -81,10 +81,11 @@ Never print or log the user's AgentPlan API key while updating the skill.
      `diagnose`, or `observe` unless the user explicitly asks to inspect or
      cancel the existing task.
 3. **Drive the outcome** in `data.outcome`:
-   - `in_progress` → run `next.command` (a `watch`). Each `watch` returns quickly
-     (~20s); just call it again while it stays `in_progress`. For a long task you
-     can instead run `result --invocation-id <id>` once to block until it
-     finishes. Do NOT cancel just because it is slow.
+   - `in_progress` → run `next.command` (a `watch`). The default watch budget is
+     ~20s. A larger `--wait-ms` is a total client budget; the CLI automatically
+     splits it into server waits of at most 60s. For a long task you can instead
+     run `result --invocation-id <id>` once to block until it finishes. Do NOT
+     cancel just because it is slow.
    - `needs_input` → relay `data.input_request.question` to the user verbatim,
      then run `answer --invocation-id <id> --answer "<user's reply>"`.
    - `completed` → use `data.result.text` as the authoritative final answer.
@@ -174,6 +175,9 @@ the user's intent clearly calls for it:
 - A `GATEWAY_TIMEOUT` / `CUA_BACKEND_UNAVAILABLE` error is transient, NOT a
   failure: the task is still running. Just re-run the same command (`watch --last`
   or `result --last`). Never restart with a new `delegate`.
+- For `MODEL_TIMEOUT`, `DESKTOP_UNHEALTHY`, `SESSION_CLEANUP`, or
+  `UPSTREAM_FAILURE`, report `reason`, `request_id`, and safe context. Do not
+  retry blindly or collapse these errors into an auth failure.
 - `cancel` (or `task cancel`) only when the user explicitly says to stop.
 - A scheduled task must NOT create, modify, stop, or delete other scheduled
   tasks. If a goal implies managing schedules, decline or ask the user — the
