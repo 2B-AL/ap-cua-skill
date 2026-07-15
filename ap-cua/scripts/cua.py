@@ -38,10 +38,11 @@ from cua_util import (
 )
 
 TERMINAL_OUTCOMES = ("completed", "failed", "cancelled")
-# Per-request wait windows are kept comfortably under typical API-gateway upstream
-# timeouts (~30s). Long tasks are driven by repeated short polls, not one long hold.
+# Long tasks use repeated waits. Each request stays within the gateway's 60-second
+# server limit while the CLI tracks the user's larger total wait budget.
 DEFAULT_WATCH_WAIT_MS = 20000
 RESULT_POLL_WAIT_MS = 20000
+SERVER_WAIT_CHUNK_MS = 60000
 IDEMPOTENT_RETRIES = 2
 
 
@@ -138,12 +139,16 @@ def cmd_ping(args, state, session):
 
 def cmd_delegate(args, state, session):
     base_url = resolve_base_url(args, state)
-    # wait_ms defaults to 0: create the invocation and return its id immediately,
-    # well under the gateway timeout. This guarantees we capture invocation_id
-    # (a 504 here would otherwise lose it) and never double-submits the task.
-    body = {"objective": args.objective, "wait_ms": args.wait_ms}
+    _validate_wait_ms(args.wait_ms)
+    # Always create without a synchronous wait so the invocation id is captured
+    # before any long polling. This prevents a timeout from causing a duplicate
+    # task submission.
+    body = {"objective": args.objective, "wait_ms": 0}
     envelope = cua_auth.authorized_call(
-        state, base_url, "POST", "/v1/invocations", body=body, timeout=_call_timeout(args.wait_ms)
+        state, base_url, "POST", "/v1/invocations", body=body, timeout=_call_timeout(0)
+    )
+    envelope = _wait_invocation_with_budget(
+        state, base_url, envelope.get("invocation_id"), args.wait_ms, initial_envelope=envelope
     )
     return _envelope_result("delegate", envelope, session)
 
@@ -151,21 +156,21 @@ def cmd_delegate(args, state, session):
 def cmd_watch(args, state, session):
     base_url = resolve_base_url(args, state)
     invocation_id = _resolve_invocation_id(args, session)
-    body = {"wait_ms": args.wait_ms}
-    envelope = cua_auth.authorized_call(
-        state, base_url, "POST", f"/v1/invocations/{invocation_id}/watch",
-        body=body, timeout=_call_timeout(args.wait_ms), retries=IDEMPOTENT_RETRIES
-    )
+    envelope = _wait_invocation_with_budget(state, base_url, invocation_id, args.wait_ms)
     return _envelope_result("watch", envelope, session)
 
 
 def cmd_answer(args, state, session):
     base_url = resolve_base_url(args, state)
+    _validate_wait_ms(args.wait_ms)
     invocation_id = _resolve_invocation_id(args, session)
-    body = {"answer": args.answer, "wait_ms": args.wait_ms}
+    body = {"answer": args.answer, "wait_ms": 0}
     envelope = cua_auth.authorized_call(
         state, base_url, "POST", f"/v1/invocations/{invocation_id}/answer",
-        body=body, timeout=_call_timeout(args.wait_ms)
+        body=body, timeout=_call_timeout(0)
+    )
+    envelope = _wait_invocation_with_budget(
+        state, base_url, invocation_id, args.wait_ms, initial_envelope=envelope
     )
     return _envelope_result("answer", envelope, session)
 
@@ -351,7 +356,8 @@ def cmd_model_set(args, state, session):
 
 def cmd_task_run(args, state, session):
     base_url = resolve_base_url(args, state)
-    body = {"objective": args.objective, "wait_ms": args.wait_ms}
+    _validate_wait_ms(args.wait_ms)
+    body = {"objective": args.objective, "wait_ms": 0}
     if args.desktop:
         body["desktop"] = args.desktop
     if args.title:
@@ -359,19 +365,26 @@ def cmd_task_run(args, state, session):
     if args.disable_ask_user:
         body["disable_ask_user"] = True
     envelope = cua_auth.authorized_call(
-        state, base_url, "POST", "/v1/tasks", body=body, timeout=_call_timeout(args.wait_ms)
+        state, base_url, "POST", "/v1/tasks", body=body, timeout=_call_timeout(0)
+    )
+    envelope = _wait_invocation_with_budget(
+        state, base_url, envelope.get("invocation_id"), args.wait_ms, initial_envelope=envelope
     )
     return _task_result("task run", envelope, session)
 
 
 def cmd_task_continue(args, state, session):
     base_url = resolve_base_url(args, state)
+    _validate_wait_ms(args.wait_ms)
     context_id = _resolve_context_id(args, session)
-    body = {"objective": args.objective, "wait_ms": args.wait_ms}
+    body = {"objective": args.objective, "wait_ms": 0}
     if args.disable_ask_user:
         body["disable_ask_user"] = True
     envelope = cua_auth.authorized_call(
-        state, base_url, "POST", f"/v1/contexts/{context_id}/tasks", body=body, timeout=_call_timeout(args.wait_ms)
+        state, base_url, "POST", f"/v1/contexts/{context_id}/tasks", body=body, timeout=_call_timeout(0)
+    )
+    envelope = _wait_invocation_with_budget(
+        state, base_url, envelope.get("invocation_id"), args.wait_ms, initial_envelope=envelope
     )
     return _task_result("task continue", envelope, session)
 
@@ -412,10 +425,14 @@ def cmd_task_result(args, state, session):
 
 def cmd_task_answer(args, state, session):
     base_url = resolve_base_url(args, state)
+    _validate_wait_ms(args.wait_ms)
     task_id = _resolve_task_id(args, session)
-    body = {"answer": args.answer, "wait_ms": args.wait_ms}
+    body = {"answer": args.answer, "wait_ms": 0}
     envelope = cua_auth.authorized_call(
-        state, base_url, "POST", f"/v1/tasks/{task_id}/answer", body=body, timeout=_call_timeout(args.wait_ms)
+        state, base_url, "POST", f"/v1/tasks/{task_id}/answer", body=body, timeout=_call_timeout(0)
+    )
+    envelope = _wait_invocation_with_budget(
+        state, base_url, task_id, args.wait_ms, initial_envelope=envelope
     )
     return _task_result("task answer", envelope, session)
 
@@ -821,6 +838,46 @@ def _call_timeout(wait_ms):
     return int(wait_ms / 1000.0) + 30
 
 
+def _wait_invocation_with_budget(state, base_url, invocation_id, wait_ms, initial_envelope=None):
+    """Wait for one invocation using a total client budget and <=60s server calls."""
+    if wait_ms is None:
+        wait_ms = DEFAULT_WATCH_WAIT_MS
+    _validate_wait_ms(wait_ms)
+    if not invocation_id:
+        raise SkillError("INTERNAL", "CUA gateway response did not include an invocation id.")
+    if initial_envelope is not None and initial_envelope.get("outcome") != "in_progress":
+        return initial_envelope
+    if wait_ms == 0:
+        if initial_envelope is not None:
+            return initial_envelope
+        return cua_auth.authorized_call(
+            state, base_url, "GET", f"/v1/invocations/{invocation_id}", retries=IDEMPOTENT_RETRIES
+        )
+
+    remaining_ms = wait_ms
+    envelope = initial_envelope
+    while remaining_ms > 0:
+        chunk_ms = min(SERVER_WAIT_CHUNK_MS, remaining_ms)
+        envelope = cua_auth.authorized_call(
+            state,
+            base_url,
+            "POST",
+            f"/v1/invocations/{invocation_id}/watch",
+            body={"wait_ms": chunk_ms},
+            timeout=_call_timeout(chunk_ms),
+            retries=IDEMPOTENT_RETRIES,
+        )
+        if envelope.get("outcome") != "in_progress":
+            return envelope
+        remaining_ms -= chunk_ms
+    return envelope
+
+
+def _validate_wait_ms(wait_ms):
+    if wait_ms is not None and wait_ms < 0:
+        raise SkillError("VALIDATION_ERROR", "--wait-ms must be >= 0")
+
+
 def _envelope_result(action, envelope, session):
     invocation_id = envelope.get("invocation_id")
     if invocation_id:
@@ -936,20 +993,20 @@ def build_parser():
     p = sub.add_parser("delegate", help="Delegate the user's original objective to CUA.")
     p.add_argument("--objective", required=True, help="The user's original request. Do not pre-plan or add constraints.")
     p.add_argument("--wait-ms", type=int, default=0,
-                   help="Max ms the server waits before returning. Default 0: return the invocation id "
-                        "immediately, then watch. Does not cancel the task.")
+                   help="Total ms to wait before returning. Calls are chunked at 60 seconds. "
+                        "Default 0 returns the invocation id immediately. Does not cancel the task.")
     p.set_defaults(handler=cmd_delegate, action="delegate")
 
     p = sub.add_parser("watch", help="Wait for or check an invocation's next state.")
     _add_invocation_args(p)
     p.add_argument("--wait-ms", type=int, default=DEFAULT_WATCH_WAIT_MS,
-                   help="Max ms to wait before returning (kept under the gateway timeout). Does not cancel the task.")
+                   help="Total ms to wait before returning; server calls are chunked at 60 seconds. Does not cancel the task.")
     p.set_defaults(handler=cmd_watch, action="watch")
 
     p = sub.add_parser("answer", help="Submit the user's answer when outcome is needs_input.")
     _add_invocation_args(p)
     p.add_argument("--answer", required=True, help="The user's answer to input_request.question.")
-    p.add_argument("--wait-ms", type=int, default=DEFAULT_WATCH_WAIT_MS, help="Max ms to wait before returning.")
+    p.add_argument("--wait-ms", type=int, default=DEFAULT_WATCH_WAIT_MS, help="Total ms to wait before returning; calls are chunked at 60 seconds.")
     p.set_defaults(handler=cmd_answer, action="answer")
 
     p = sub.add_parser("cancel", help="Request cancellation. Only when the user asks to stop.")
@@ -1029,7 +1086,7 @@ def _add_semantic_parsers(sub):
     p.add_argument("--desktop", help="Desktop id or name (from desktop list). Defaults to the bound desktop.")
     p.add_argument("--title", help="Title for the auto-created context.")
     p.add_argument("--disable-ask-user", action="store_true", help="Do not let CUA pause to ask the user mid-task.")
-    p.add_argument("--wait-ms", type=int, default=0, help="Max ms the server waits before returning. Default 0.")
+    p.add_argument("--wait-ms", type=int, default=0, help="Total ms to wait before returning; calls are chunked at 60 seconds. Default 0.")
     p.set_defaults(handler=cmd_task_run, action="task run")
 
     p = task.add_parser("continue", help="Continue work in an existing context.")
@@ -1037,7 +1094,7 @@ def _add_semantic_parsers(sub):
     p.add_argument("--context-id", help="The context to continue.")
     p.add_argument("--last-context", action="store_true", help="Use the most recent context id.")
     p.add_argument("--disable-ask-user", action="store_true", help="Do not let CUA pause to ask the user mid-task.")
-    p.add_argument("--wait-ms", type=int, default=0, help="Max ms the server waits before returning. Default 0.")
+    p.add_argument("--wait-ms", type=int, default=0, help="Total ms to wait before returning; calls are chunked at 60 seconds. Default 0.")
     p.set_defaults(handler=cmd_task_continue, action="task continue")
 
     p = task.add_parser("status", help="Check a task's current state.")
@@ -1052,7 +1109,7 @@ def _add_semantic_parsers(sub):
     p = task.add_parser("answer", help="Answer CUA's question when outcome is needs_input.")
     _add_task_args(p)
     p.add_argument("--answer", required=True, help="The user's answer to input_request.question.")
-    p.add_argument("--wait-ms", type=int, default=DEFAULT_WATCH_WAIT_MS, help="Max ms to wait before returning.")
+    p.add_argument("--wait-ms", type=int, default=DEFAULT_WATCH_WAIT_MS, help="Total ms to wait before returning; calls are chunked at 60 seconds.")
     p.set_defaults(handler=cmd_task_answer, action="task answer")
 
     p = task.add_parser("cancel", help="Cancel a task. Only when the user asks to stop.")

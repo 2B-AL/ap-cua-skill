@@ -1,7 +1,8 @@
 # Troubleshooting
 
 All errors arrive as `{ "ok": false, "action": "...", "error": { "code", "message", ... } }`.
-Branch on `error.code`.
+Branch on `error.code`. `reason`, `request_id`, `upstream_code`,
+`upstream_status`, and safe `context` are included when available.
 
 | code | HTTP | cause | what to do |
 | --- | --- | --- | --- |
@@ -16,6 +17,10 @@ Branch on `error.code`.
 | `SCHEDULE_NOT_FOUND` | 404 | wrong/unknown (or deleted) schedule id | re-check with `schedule list` |
 | `ARTIFACT_NOT_FOUND` | 404 | unknown artifact, or it has no bytes | re-check with `artifact list`; a placeholder artifact has no downloadable content |
 | `ACTIVE_RUN_CONFLICT` | 409 | the cloud desktop already has an active task/run, so the new task was not started | tell the user to wait until the current desktop task finishes. Do not retry or start another task; only inspect/cancel the existing task if the user explicitly asks and the response includes a usable id |
+| `MODEL_TIMEOUT` | 504/5xx | the model provider timed out | report the request id and reason; retry only when safe and requested |
+| `DESKTOP_UNHEALTHY` | 409/5xx | desktop or guest runtime health check failed | report the desktop/run context and request id; do not treat it as auth failure |
+| `SESSION_CLEANUP` | 409/5xx | a previous session could not be cleaned up | report the task/run context and avoid retry loops |
+| `UPSTREAM_FAILURE` | varies | upstream reported failure without usable diagnostics | report the request id; do not retry blindly |
 | `SCHEDULE_NESTING_NOT_ALLOWED` | 409 | a scheduled task tried to manage schedules | scheduled tasks cannot create/modify other schedules; do it directly |
 | `SCHEDULING_UNAVAILABLE` | 501 | this CUA backend has no scheduled-task endpoint (platform 404) | tell the user scheduling is unavailable; run the goal once with `task run`. Do NOT retry with other args or fall back to an external scheduler |
 | `PAYLOAD_TOO_LARGE` | 413 | request body too large | shorten the objective/note/answer |

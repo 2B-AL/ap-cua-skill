@@ -84,4 +84,5 @@ delegate ──> in_progress ──watch──> in_progress   (loop)
   screenshot.
 - A timeout is NOT an outcome. If a `watch`/`delegate` returns `in_progress`
   because its `wait_ms` elapsed, just `watch` again.
-- `watch` default wait is 60s; the server caps a single wait at 10 minutes.
+- `watch` uses a total client-side wait budget. The server caps one wait at 60
+  seconds, so the CLI splits longer budgets into repeated calls.
