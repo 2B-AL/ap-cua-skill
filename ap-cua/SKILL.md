@@ -21,9 +21,9 @@ Every call prints ONE JSON object. Parse it. On success `"ok": true` with a
 `error.code`; auth failures include `error.setup_command` for the user to run in
 their own local terminal.
 
-Zero-config: the gateway URL is baked into the skill (`config.json`). The only
-one-time step is configuring the AgentPlan API key, which the user must do in
-their own local terminal. (Advanced override: `--api-base-url <url>` or
+Zero-config: the production gateway URL is baked into the skill (`config.json`).
+The only one-time step is configuring the AgentPlan API key, which the user must
+do in their own local terminal. (Advanced override: `--api-base-url <url>` or
 `AP_CUA_SKILL_API_BASE_URL`.)
 
 ## If the user asks to update this skill

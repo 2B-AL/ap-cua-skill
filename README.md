@@ -40,7 +40,8 @@ python3 <skill_dir>/scripts/cua.py delegate --objective "<the user's request>"
 python3 <skill_dir>/scripts/cua.py watch --last
 ```
 
-Zero-config: the gateway URL is baked into [`ap-cua/config.json`](ap-cua/config.json).
+Zero-config: the production gateway URL is baked into
+[`ap-cua/config.json`](ap-cua/config.json).
 Override per call with `--api-base-url <url>` or the `AP_CUA_SKILL_API_BASE_URL`
 environment variable.
 

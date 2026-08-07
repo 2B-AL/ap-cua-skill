@@ -11,6 +11,14 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import cua  # noqa: E402
 
 
+class CuaBundledConfigTests(unittest.TestCase):
+    def test_bundled_base_url_targets_production_gateway(self):
+        self.assertEqual(
+            cua.bundled_base_url(),
+            "https://s4ebmnro55svp3n2okb3k.apigateway-cn-beijing.volceapi.com",
+        )
+
+
 class FakeSession:
     def __init__(self):
         self.last_invocation_id = None
