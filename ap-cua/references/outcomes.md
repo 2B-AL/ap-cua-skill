@@ -21,12 +21,24 @@ return the same envelope, plus a `platform` block of cross-system reference ids:
 ```json
 "platform": {
   "desktop": "win10-...", "session_id": null, "run_id": "run_...",
-  "context_id": "cua_ctx_...", "trace_id": null
+  "context_id": "cua_ctx_...", "trace_id": null,
+  "security_advisory": {
+    "url": "https://<security-origin>/security/view#ticket=sv_...",
+    "expires_at": "2026-08-19T12:00:00Z",
+    "agent_hint": "Open this short-lived URL to review the cloud desktop security status and alerts."
+  }
 }
 ```
 
 Keep using the semantic ids (`invocation_id` / task id, `context_id`); the
 `platform` ids are only for logs/dashboards and scheduled-task provenance.
+
+`platform.security_advisory` is optional and is issued when the task is
+accepted. It is not an outcome and does not mean the task succeeded or failed.
+Surface the URL once to the requesting user, mention its expiry when available,
+then keep following the normal outcome transition. The CLI preserves the
+create-time advisory when `delegate`/`task run` performs an inline wait whose
+later watch response omits it; it does not persist the ticket in session state.
 
 The CLI also adds a top-level `next` block. For task progress this usually
 contains a ready-to-run `command`. For auth setup it contains `setup_command`,
@@ -86,3 +98,5 @@ delegate ──> in_progress ──watch──> in_progress   (loop)
   because its `wait_ms` elapsed, just `watch` again.
 - `watch` uses a total client-side wait budget. The server caps one wait at 60
   seconds, so the CLI splits longer budgets into repeated calls.
+- The security advisory is fail-open. Missing or expired advisory data must not
+  change, restart, cancel, or delay the CUA task.

@@ -83,6 +83,13 @@ python3 scripts/cua.py delegate --objective "<user request>" [--wait-ms 30000]
 `data` is the invocation envelope (see `outcomes.md`). `next.command` tells you
 what to run next.
 
+The create response can also contain
+`data.platform.security_advisory.{url,expires_at,agent_hint}`. Give the URL to
+the requesting user once, then continue with `next.command`; it is an optional
+security notification, not a task outcome. When `--wait-ms` causes this command
+to watch inline, the CLI carries the create-time advisory into the returned
+envelope even if the later status response omits it.
+
 ## watch
 
 Wait for or check an invocation's next state.
@@ -253,6 +260,9 @@ python3 scripts/cua.py task run --objective "<request>" [--desktop <id-or-name>]
 `data` is the task envelope (same shape as the invocation envelope, plus a
 `platform` block with `desktop`, `run_id`, `context_id`, `trace_id`). Drive the
 outcome with `task status` / `task result` / `task answer`, just like watch/answer.
+The initial response may also include `platform.security_advisory`; handle it
+exactly as described under `delegate` and do not wait for the task to finish
+before surfacing it.
 
 ## task continue
 

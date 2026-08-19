@@ -4,7 +4,9 @@ The skill talks to the CUA Skill Gateway over HTTPS JSON. You never call this
 directly — `scripts/cua.py` does. This is reference only.
 
 Base URL comes from `config.json`, `AP_CUA_SKILL_API_BASE_URL`, or `--api-base-url`.
-All paths are under `/v1`.
+CLI business paths are under `/v1`. Security-advisory URLs are opaque URLs
+issued by the gateway and can use a different public origin; never derive them
+from the API base URL.
 
 ## Unified envelope
 
@@ -76,6 +78,49 @@ or cancel the existing task.
 The gateway owns all platform `/api/**` calls (desktops, sessions, runs,
 scheduled-tasks, artifacts) behind these stable semantic routes; the skill never
 touches the platform directly.
+
+## Task security advisory
+
+An accepted `POST /v1/invocations`, `POST /v1/tasks`, or context task can include
+this optional task-envelope field:
+
+```json
+{
+  "platform": {
+    "security_advisory": {
+      "url": "https://<security-origin>/security/view#ticket=sv_...",
+      "expires_at": "2026-08-19T12:00:00Z",
+      "agent_hint": "Open this short-lived URL to review the cloud desktop security status and alerts."
+    }
+  }
+}
+```
+
+The ticket is scoped to the caller, desktop, and current desktop access
+generation. It is short-lived and deliberately stays in the URL fragment so it
+is not sent in the initial request or Referer. The field is fail-open: absence,
+expiry, or notification failure never changes task admission or outcome.
+
+The CLI treats the advisory URL as opaque, returns it to the requesting user,
+and continues the task state machine. It must not call the page's private JSON
+APIs, convert the URL into a Grafana link, or persist the ticket in session
+state.
+
+## Browser-only security page flow
+
+These endpoints are used by the browser page, not by `scripts/cua.py`:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/security/view` | load the no-store security-center shell; the fragment is not sent to the server |
+| `POST` | `/security/view/session` | exchange the fragment ticket for a scoped HttpOnly, SameSite=Strict cookie |
+| `GET` | `/security/view/api/status` | read the current instance security summary using that cookie |
+| `GET` | `/security/view/api/alerts` | read the current instance alerts using that cookie |
+
+The page exposes instance security state and alert information only. It does
+not expose a Grafana origin. A Windows desktop popup may also be delivered
+asynchronously when risk exists and an active viewer is present; that delivery
+is best-effort and has no client API call.
 
 ## Auth/me response
 

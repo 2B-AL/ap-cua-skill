@@ -6,9 +6,11 @@ description: Delegate a broad computer-use task to CUA for Volcengine AgentPlan 
 # AgentPlan CUA Skill
 
 CUA runs the user's task on an authenticated cloud desktop and reports back. You
-drive it through ONE script. Do not call the gateway HTTP API directly, do not
-print API keys or access URLs with tickets. This AgentPlan variant authenticates
-with the user's Volcengine Ark AgentPlan API key.
+drive it through ONE script. Do not call the gateway HTTP API directly and never
+print API keys. Treat temporary desktop and security-advisory URLs as bearer
+secrets: surface them only to the requesting user when the workflow calls for
+it, and never copy them into logs, issues, or unrelated messages. This AgentPlan
+variant authenticates with the user's Volcengine Ark AgentPlan API key.
 
 ## The only command surface
 
@@ -72,6 +74,11 @@ Never print or log the user's AgentPlan API key while updating the skill.
    - It returns almost immediately with `data.invocation_id` and
      `outcome: in_progress`. Note `data.invocation_id`. Do NOT call `delegate`
      again for the same request — that starts a second task.
+   - If `data.platform.security_advisory.url` is present, immediately give that
+     short-lived URL to the user once and mention
+     `data.platform.security_advisory.expires_at` when present. Then continue
+     driving the task outcome normally. The advisory is independent of task
+     success and must never replace `data.result.text`.
    - If `delegate`, `task run`, or `task continue` returns
      `ACTIVE_RUN_CONFLICT` (or raw `active_run_conflict` /
      `ActiveTaskRunning`), the new task was NOT started because the cloud
@@ -193,7 +200,14 @@ the user's intent clearly calls for it:
 - `ping` is a read-only auth/desktop check; it creates no task. `self-test` runs
   local checks only. Do not delegate just to test setup.
 - API keys, the user's objective, answers, result text, and screenshot bytes never
-  appear in output — do not try to print or log them.
+  appear outside the structured command workflow — do not add extra logging.
+- A security advisory is optional and fail-open. Its absence is normal; do not
+  query private security APIs, retry the task, or delay the task because no URL
+  was returned. If present, share `data.platform.security_advisory.url` only
+  with the requesting user and keep following `next.command`.
+- The Windows notification is best-effort and automatic when the user has an
+  active desktop viewer and the instance has risk. The CLI must not simulate,
+  poll, or treat the popup as proof of task completion.
 
 ## References (read when needed)
 

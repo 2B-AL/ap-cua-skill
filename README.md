@@ -40,6 +40,11 @@ python3 <skill_dir>/scripts/cua.py delegate --objective "<the user's request>"
 python3 <skill_dir>/scripts/cua.py watch --last
 ```
 
+When task admission returns an optional short-lived security advisory, the
+skill surfaces its URL to the requesting user and continues the original task
+without blocking or changing its outcome. The link opens an instance-scoped
+security summary; it does not expose Grafana.
+
 Zero-config: the production gateway URL is baked into
 [`ap-cua/config.json`](ap-cua/config.json).
 Override per call with `--api-base-url <url>` or the `AP_CUA_SKILL_API_BASE_URL`
