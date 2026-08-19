@@ -8,9 +8,11 @@ Every invocation prints exactly one JSON object:
     {"ok": true,  "action": "<command>", "data": {...}, "next": {...}}
     {"ok": false, "action": "<command>", "error": {"code": "...", "message": "..."}}
 
-Stdlib only. API keys, the user's objective, the user's answers, CUA's final text,
-and screenshot bytes are never printed. See references/ for full command and
-error documentation.
+Stdlib only. API keys and screenshot bytes are never printed. User-provided
+objectives/answers and CUA result text are handled only through the structured
+task workflow. Short-lived desktop and security-advisory URLs are returned only
+when the corresponding gateway operation intentionally issues them. See
+references/ for full command and error documentation.
 """
 
 import argparse
@@ -742,26 +744,27 @@ def _next_for_task(envelope):
     script = script_path()
     next_action = envelope.get("next_action") or {}
     hint = next_action.get("agent_hint", "")
+    next_step = None
     if outcome == "in_progress":
-        return {
+        next_step = {
             "command": f"python3 {script} task status --task-id {task_id}",
             "agent_hint": hint or "Keep checking task status until completed, needs_input, failed, or cancelled. "
             f"For a hands-off wait use `python3 {script} task result --task-id {task_id}`. "
             "Do not answer the task from progress.",
         }
-    if outcome == "needs_input":
-        return {
+    elif outcome == "needs_input":
+        next_step = {
             "command": f'python3 {script} task answer --task-id {task_id} --answer "<USER_ANSWER>"',
             "agent_hint": hint or "Relay input_request.question to the user verbatim, then submit their reply with task answer.",
         }
-    if outcome == "completed":
-        return {"agent_hint": hint or "Use data.result.text as the authoritative final result. "
-                "Save any produced files with artifact save."}
-    if outcome == "failed":
-        return {"agent_hint": hint or "CUA could not complete the task. Explain the failure; retry only if the user asks."}
-    if outcome == "cancelled":
-        return {"agent_hint": hint or "The task was cancelled."}
-    return None
+    elif outcome == "completed":
+        next_step = {"agent_hint": hint or "Use data.result.text as the authoritative final result. "
+                     "Save any produced files with artifact save."}
+    elif outcome == "failed":
+        next_step = {"agent_hint": hint or "CUA could not complete the task. Explain the failure; retry only if the user asks."}
+    elif outcome == "cancelled":
+        next_step = {"agent_hint": hint or "The task was cancelled."}
+    return _with_security_advisory_hint(next_step, envelope)
 
 
 def _schedule_result(action, data, session):
@@ -845,6 +848,7 @@ def _wait_invocation_with_budget(state, base_url, invocation_id, wait_ms, initia
     _validate_wait_ms(wait_ms)
     if not invocation_id:
         raise SkillError("INTERNAL", "CUA gateway response did not include an invocation id.")
+    security_advisory = _security_advisory(initial_envelope)
     if initial_envelope is not None and initial_envelope.get("outcome") != "in_progress":
         return initial_envelope
     if wait_ms == 0:
@@ -867,6 +871,9 @@ def _wait_invocation_with_budget(state, base_url, invocation_id, wait_ms, initia
             timeout=_call_timeout(chunk_ms),
             retries=IDEMPOTENT_RETRIES,
         )
+        envelope = _attach_security_advisory(envelope, security_advisory)
+        if security_advisory is None:
+            security_advisory = _security_advisory(envelope)
         if envelope.get("outcome") != "in_progress":
             return envelope
         remaining_ms -= chunk_ms
@@ -891,25 +898,77 @@ def _next_for_envelope(envelope):
     script = script_path()
     next_action = envelope.get("next_action") or {}
     hint = next_action.get("agent_hint", "")
+    next_step = None
     if outcome == "in_progress":
-        return {
+        next_step = {
             "command": f"python3 {script} watch --invocation-id {invocation_id}",
             "agent_hint": hint or "Keep watching until completed, needs_input, failed, or cancelled. "
             "Each watch returns quickly; just call it again while in_progress. For a hands-off wait, "
             f"use `python3 {script} result --invocation-id {invocation_id}`. Do not answer the task from progress.",
         }
-    if outcome == "needs_input":
-        return {
+    elif outcome == "needs_input":
+        next_step = {
             "command": f'python3 {script} answer --invocation-id {invocation_id} --answer "<USER_ANSWER>"',
             "agent_hint": hint or "Relay input_request.question to the user verbatim, then submit their reply with answer.",
         }
-    if outcome == "completed":
-        return {"agent_hint": hint or "Use data.result.text as the authoritative final result."}
-    if outcome == "failed":
-        return {"agent_hint": hint or "CUA could not complete the task. Explain the failure; retry only if the user asks."}
-    if outcome == "cancelled":
-        return {"agent_hint": hint or "The task was cancelled."}
-    return None
+    elif outcome == "completed":
+        next_step = {"agent_hint": hint or "Use data.result.text as the authoritative final result."}
+    elif outcome == "failed":
+        next_step = {"agent_hint": hint or "CUA could not complete the task. Explain the failure; retry only if the user asks."}
+    elif outcome == "cancelled":
+        next_step = {"agent_hint": hint or "The task was cancelled."}
+    return _with_security_advisory_hint(next_step, envelope)
+
+
+def _security_advisory(envelope):
+    """Return a copied advisory object from a task envelope, if present."""
+    if not isinstance(envelope, dict):
+        return None
+    platform = envelope.get("platform")
+    if not isinstance(platform, dict):
+        return None
+    advisory = platform.get("security_advisory")
+    if not isinstance(advisory, dict) or not isinstance(advisory.get("url"), str):
+        return None
+    if not advisory["url"].strip():
+        return None
+    return dict(advisory)
+
+
+def _attach_security_advisory(envelope, advisory):
+    """Carry the create-time advisory across synchronous watch responses.
+
+    The gateway intentionally issues the short-lived URL only when it accepts a
+    task. Later state reads need not mint another ticket, so a client-side wait
+    must not accidentally discard the original advisory.
+    """
+    if not isinstance(envelope, dict) or not advisory:
+        return envelope
+    platform = envelope.get("platform")
+    if not isinstance(platform, dict):
+        platform = {}
+        envelope["platform"] = platform
+    platform.setdefault("security_advisory", dict(advisory))
+    return envelope
+
+
+def _with_security_advisory_hint(next_step, envelope):
+    advisory = _security_advisory(envelope)
+    if advisory is None:
+        return next_step
+    if next_step is None:
+        next_step = {}
+    else:
+        next_step = dict(next_step)
+    advisory_hint = (
+        "A short-lived security advisory is available at "
+        "data.platform.security_advisory.url. Surface that URL to the user once, "
+        "mention data.platform.security_advisory.expires_at when present, and continue "
+        "the task workflow normally. The advisory does not change the task outcome."
+    )
+    current = str(next_step.get("agent_hint") or "").strip()
+    next_step["agent_hint"] = (current + " " + advisory_hint).strip()
+    return next_step
 
 
 def _derive_desktop_urls(access_url):

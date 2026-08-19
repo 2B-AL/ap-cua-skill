@@ -22,9 +22,16 @@ class CuaBundledConfigTests(unittest.TestCase):
 class FakeSession:
     def __init__(self):
         self.last_invocation_id = None
+        self.last_task_id = None
+        self.last_context_id = None
 
     def set_last_invocation_id(self, value):
         self.last_invocation_id = value
+
+    def set_last(self, **values):
+        for key, value in values.items():
+            if value:
+                setattr(self, key, value)
 
 
 class CuaWaitBudgetTests(unittest.TestCase):
@@ -103,6 +110,85 @@ class CuaWaitBudgetTests(unittest.TestCase):
         self.assertEqual(call.call_args_list[0].kwargs["body"]["wait_ms"], 0)
         self.assertEqual(call.call_args_list[1].args[2:4], ("POST", "/v1/invocations/task-1/watch"))
         self.assertEqual(call.call_args_list[1].kwargs["body"]["wait_ms"], 60000)
+
+    def test_delegate_preserves_create_time_security_advisory_while_waiting(self):
+        advisory = {
+            "url": "https://security.example.test/security/view#ticket=sv_test",
+            "expires_at": "2026-08-19T12:00:00Z",
+        }
+        responses = [
+            {
+                "invocation_id": "task-1",
+                "outcome": "in_progress",
+                "platform": {"security_advisory": advisory},
+            },
+            {"invocation_id": "task-1", "outcome": "completed", "platform": {}},
+        ]
+        session = FakeSession()
+        with (
+            mock.patch.object(cua, "resolve_base_url", return_value="http://gateway"),
+            mock.patch.object(cua.cua_auth, "authorized_call", side_effect=responses),
+        ):
+            result = cua.cmd_delegate(
+                Namespace(objective="test", wait_ms=60000),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(result["data"]["platform"]["security_advisory"], advisory)
+        self.assertIn("Surface that URL to the user once", result["next"]["agent_hint"])
+        self.assertIn("continue the task workflow normally", result["next"]["agent_hint"])
+
+    def test_task_next_hint_surfaces_security_advisory_without_changing_outcome(self):
+        next_step = cua._next_for_task({
+            "invocation_id": "task-1",
+            "outcome": "in_progress",
+            "platform": {
+                "security_advisory": {
+                    "url": "https://security.example.test/security/view#ticket=sv_test",
+                },
+            },
+        })
+
+        self.assertIn("task status --task-id task-1", next_step["command"])
+        self.assertIn("security advisory", next_step["agent_hint"])
+        self.assertNotIn("sv_test", next_step["agent_hint"])
+
+    def test_task_run_uses_v1_tasks_and_surfaces_advisory(self):
+        envelope = {
+            "invocation_id": "task-1",
+            "outcome": "in_progress",
+            "platform": {
+                "context_id": "ctx-1",
+                "security_advisory": {
+                    "url": "https://security.example.test/security/view#ticket=sv_test",
+                    "expires_at": "2026-08-19T12:00:00Z",
+                },
+            },
+        }
+        session = FakeSession()
+        with (
+            mock.patch.object(cua, "resolve_base_url", return_value="http://gateway"),
+            mock.patch.object(cua.cua_auth, "authorized_call", return_value=envelope) as call,
+        ):
+            result = cua.cmd_task_run(
+                Namespace(
+                    objective="test",
+                    wait_ms=0,
+                    desktop=None,
+                    title=None,
+                    disable_ask_user=False,
+                ),
+                state=object(),
+                session=session,
+            )
+
+        self.assertEqual(call.call_args.args[2:4], ("POST", "/v1/tasks"))
+        self.assertEqual(call.call_args.kwargs["body"], {"objective": "test", "wait_ms": 0})
+        self.assertEqual(result["data"]["platform"]["security_advisory"], envelope["platform"]["security_advisory"])
+        self.assertIn("task status --task-id task-1", result["next"]["command"])
+        self.assertEqual(session.last_task_id, "task-1")
+        self.assertEqual(session.last_context_id, "ctx-1")
 
 
 if __name__ == "__main__":

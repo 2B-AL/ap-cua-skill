@@ -1,10 +1,9 @@
 """Shared helpers for the AgentPlan CUA Skill CLI.
 
 Stdlib only. Provides the unified JSON output contract and a structured error
-type. The CLI NEVER prints AgentPlan API keys, desktop access tokens,
-the user's objective, the user's answers, CUA's final result text, or screenshot
-bytes onto stdout/stderr; only invocation metadata, outcome, user email, and
-login status.
+type. The CLI never prints AgentPlan API keys or screenshot bytes. Temporary
+desktop and security-advisory URLs appear only in the structured output of the
+gateway operations that intentionally issue them.
 """
 
 import json
